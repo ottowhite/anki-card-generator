@@ -1,7 +1,8 @@
-"""Sign in to AnkiWeb and sync a local collection, using the `anki` package.
+"""Sign in to AnkiWeb and sync the repo-local collection, using the `anki`
+package.
 
-Credentials are never hardcoded or passed on the command line. Set them in
-your own shell before running this script:
+Credentials are never hardcoded or passed on the command line. Set them via
+a direnv-managed .env.local (see .env.example), or export them yourself:
 
     export ANKIWEB_USERNAME="you@example.com"
     export ANKIWEB_PASSWORD="your-password"
@@ -10,9 +11,9 @@ your own shell before running this script:
 If `ANKIWEB_PASSWORD` is unset, you'll be prompted via a hidden terminal
 prompt (`getpass`) instead - it is never echoed or logged.
 
-By default this targets your real local profile's collection, which is
-normally open inside the Anki desktop app. Close Anki Desktop first, or
-sync will fail to acquire the file lock / your changes may not round-trip.
+By default this syncs data/collection.anki2, a repo-local copy of the
+collection, decoupled from the one open in the Anki desktop app - no need
+to close the app first.
 """
 
 from __future__ import annotations
@@ -20,20 +21,12 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
-import sys
 from pathlib import Path
 
 from anki.collection import Collection
 
-DEFAULT_ANKI2_DIR = Path.home() / "Library" / "Application Support" / "Anki2"
-
-
-def find_default_collection() -> Path | None:
-    """Best-effort guess at the current profile's collection.anki2."""
-    if not DEFAULT_ANKI2_DIR.is_dir():
-        return None
-    candidates = sorted(DEFAULT_ANKI2_DIR.glob("*/collection.anki2"))
-    return candidates[0] if candidates else None
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_COLLECTION_PATH = PROJECT_ROOT / "data" / "collection.anki2"
 
 
 def main() -> None:
@@ -41,9 +34,8 @@ def main() -> None:
     parser.add_argument(
         "--collection",
         type=Path,
-        default=None,
-        help="Path to the .anki2 collection file to sync (default: auto-detect "
-        "the current profile under ~/Library/Application Support/Anki2).",
+        default=DEFAULT_COLLECTION_PATH,
+        help=f"Path to the .anki2 collection file to sync (default: {DEFAULT_COLLECTION_PATH}).",
     )
     parser.add_argument(
         "--no-media",
@@ -59,13 +51,8 @@ def main() -> None:
     if not password:
         password = getpass.getpass("AnkiWeb password: ")
 
-    collection_path = args.collection or find_default_collection()
-    if collection_path is None:
-        print(
-            "Could not auto-detect a collection.anki2. Pass --collection /path/to/collection.anki2.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
+    collection_path: Path = args.collection
+    collection_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Opening collection: {collection_path}")
     col = Collection(str(collection_path))

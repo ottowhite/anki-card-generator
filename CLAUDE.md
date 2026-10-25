@@ -8,6 +8,11 @@ collection/backend library used by the desktop app and add-ons).
 - Dependency/venv management: `uv` (not pip/poetry). Use `uv add <pkg>`,
   `uv sync`, `uv run <cmd>`.
 - Python version pinned via `.python-version` (3.12).
+- Env/credentials: `direnv`. `.envrc` runs `dotenv_if_exists .env.local`.
+  `.env.example` (committed, placeholders) is the template; `.env.local`
+  (gitignored, real `ANKIWEB_USERNAME`/`ANKIWEB_PASSWORD`) is the real one,
+  copied from `.env.example` and edited locally — never ask the user to
+  paste real credentials into chat, and never commit `.env.local`.
 
 ## Structure
 
@@ -16,13 +21,17 @@ collection/backend library used by the desktop app and add-ons).
   built-in "Basic" note type. `main()` runs `demo()` against a temp
   collection; wired up as the `anki-driver` console script in
   `pyproject.toml`.
-- `src/anki_driver/sync.py` — signs in to AnkiWeb and syncs a real local
-  collection. Wired up as the `anki-driver-sync` console script. Reads
-  `ANKIWEB_USERNAME`/`ANKIWEB_PASSWORD` from the environment (falls back to
-  `input()`/`getpass` prompts) — credentials must never be hardcoded, passed
-  as CLI args, or committed. `find_default_collection()` auto-detects the
-  current profile's `collection.anki2` under
-  `~/Library/Application Support/Anki2/`.
+- `src/anki_driver/sync.py` — signs in to AnkiWeb and syncs the repo-local
+  collection copy. Wired up as the `anki-driver-sync` console script. Reads
+  `ANKIWEB_USERNAME`/`ANKIWEB_PASSWORD` from the environment (populated by
+  direnv from `.env.local`, falls back to `input()`/`getpass` prompts) —
+  credentials must never be hardcoded, passed as CLI args, or committed.
+  `DEFAULT_COLLECTION_PATH` is `data/collection.anki2` (repo-relative, via
+  `Path(__file__).resolve().parents[2]`), not the global Anki profile.
+- `data/collection.anki2` — gitignored copy of the real collection (seeded
+  once via `cp` from `~/Library/Application Support/Anki2/User 1/collection.anki2`).
+  Operating on this copy instead of the global profile means no file-lock
+  conflict with the Anki desktop app.
 
 ## Key API notes (anki package)
 
@@ -39,5 +48,4 @@ collection/backend library used by the desktop app and add-ons).
   returns a `SyncAuth` (session `hkey`); `col.sync_collection(auth,
   sync_media)` performs the actual sync. Both are methods on an open
   `Collection` (any open collection works for `sync_login`, since it just
-  proxies to the Rust backend). Syncing a profile that's open in the Anki
-  desktop app will fail/conflict on the file lock — close the app first.
+  proxies to the Rust backend).
