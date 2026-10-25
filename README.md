@@ -75,8 +75,8 @@ cp "$HOME/Library/Application Support/Anki2/User 1/collection.anki2" data/collec
 ### Adding cards (sync -> add -> sync)
 
 The repeatable workflow for "give me a card for word X": sync, add one or
-more notes, sync again. Not coupled to any single note type — `cloze` and
-`basic` subcommands exist today, more can be added later.
+more notes, sync again. Not coupled to any single note type — `cloze`,
+`picture`, and `basic` subcommands exist today, more can be added later.
 
 ```bash
 uv run add-card cloze \
@@ -90,18 +90,39 @@ uv run add-card cloze \
   pair it positionally with `--text`, once per card, or omit entirely. See
   **Card content conventions** below for what goes in here.
 - `--deck` overrides the target deck (default: `Vocabulario`).
-- `--image-url URL` attaches a web image, downloaded and shrunk to a small
-  low-res JPEG (see below). Only valid with a single `--text`.
+- Cloze cards never carry an image — use `picture` for that (below).
+
+```bash
+uv run add-card picture \
+  --image-url "https://commons.wikimedia.org/wiki/Special:FilePath/Old-chair.jpg" \
+  --word "la silla" \
+  --extra "sustantivo, femenino."
+```
+
+A picture card is a plain `Basic` note where the **front is the image
+alone** (nothing else) and the **back is the word plus grammar info** —
+see an object, recall the word, flip to check. `--image-url` is downloaded
+and shrunk to a small low-res JPEG (see below); finding that URL (e.g. via
+a web image search for a concrete object) is done by whoever calls
+`add-card`, not by this code.
 
 ```bash
 uv run add-card basic --front "..." --back "..." [--image-url URL]
 ```
 
+`basic` is the general front/back escape hatch (e.g. for a non-picture,
+non-cloze card); `picture` is just a convenience wrapper around it with
+`front=""` and `image_field="Front"`.
+
 Each run: logs in, syncs (pulls latest), adds the note(s), syncs again
-(pushes them up). Composing the actual card content (sentence, word type,
-image search query, etc.) is a judgment call made by whoever invokes this
-(e.g. Claude) — this script only handles the sync/add/sync mechanics, plus
-the image download/resize/attach plumbing.
+(pushes them up) — **and actually waits for any attached image to finish
+uploading** before closing the collection (see `sync.py`'s `sync_now`;
+`sync_collection(sync_media=True)` only starts the media transfer in the
+background, so skipping this wait silently drops images — this bit us
+once already, see git history). Composing the actual card content
+(sentence, word type, image search query, etc.) is a judgment call made by
+whoever invokes this (e.g. Claude) — this script only handles the
+sync/add/sync mechanics, plus the image download/resize/attach plumbing.
 
 #### Card content conventions (Spanish vocab cards)
 

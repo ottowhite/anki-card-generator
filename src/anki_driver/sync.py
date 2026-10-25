@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import time
 from pathlib import Path
 
 from anki.collection import Collection
@@ -31,6 +32,8 @@ from anki.sync import SyncAuth
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_COLLECTION_PATH = PROJECT_ROOT / "data" / "collection.anki2"
+MEDIA_SYNC_TIMEOUT_SECONDS = 120
+MEDIA_SYNC_POLL_INTERVAL_SECONDS = 0.5
 
 
 def get_credentials() -> tuple[str, str]:
@@ -50,9 +53,31 @@ def login(col: Collection, username: str, password: str) -> SyncAuth:
 
 
 def sync_now(col: Collection, auth: SyncAuth, sync_media: bool = True) -> str:
-    """Run one sync pass and return a human-readable result."""
+    """Run one sync pass and return a human-readable result.
+
+    `sync_collection(sync_media=True)` only *starts* media upload/download
+    in the background and returns immediately - it does not wait for it to
+    finish. Without waiting here, a just-added image can get silently left
+    behind (still `dirty` locally) if the collection is closed right after,
+    which is exactly what happened the first time this was tried: the note
+    synced, but its image never reached AnkiWeb ("image is missing").
+    """
     out = col.sync_collection(auth, sync_media=sync_media)
+    if sync_media:
+        _wait_for_media_sync(col)
     return str(out.required)
+
+
+def _wait_for_media_sync(
+    col: Collection,
+    timeout: float = MEDIA_SYNC_TIMEOUT_SECONDS,
+    poll_interval: float = MEDIA_SYNC_POLL_INTERVAL_SECONDS,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while col.media_sync_status().active:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"Media sync did not finish within {timeout}s")
+        time.sleep(poll_interval)
 
 
 def open_default_collection(collection_path: Path = DEFAULT_COLLECTION_PATH) -> Collection:

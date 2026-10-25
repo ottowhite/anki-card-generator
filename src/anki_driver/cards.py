@@ -3,9 +3,7 @@
 Mechanizes the repeatable workflow: sync (pull latest from AnkiWeb), add
 the new note(s), sync again (push them back up). Not coupled to any one
 note type - a `CardSpec` just names the note type and its field values, so
-Cloze, Basic, or anything else can be added the same way. Optionally
-attaches a web image (fetched and shrunk to a low-res JPEG) to a chosen
-field.
+Cloze, Basic, picture cards, or anything else can be added the same way.
 
 Composing the actual card content (the Spanish sentence/cloze, word type,
 gender, infinitive, an image search query, etc.) is done by whoever calls
@@ -16,7 +14,12 @@ Usage:
         --text "Para programar bien necesitas mucha {{c1::habilidad}} y practica." \\
         --extra "sustantivo, femenino. Sinonimos: destreza, capacidad."
 
-    uv run add-card basic --front "..." --back "..." --image-url "https://..."
+    # Picture card: image alone on the front, word (+ info) on the back.
+    # Not a Cloze card - images never go on Cloze cards.
+    uv run add-card picture --image-url "https://..." --word "la silla" \\
+        --extra "sustantivo, femenino."
+
+    uv run add-card basic --front "..." --back "..." [--image-url "https://..."]
 """
 
 from __future__ import annotations
@@ -69,25 +72,17 @@ class CardSpec:
         return fields
 
 
-def cloze_card(
-    text: str,
-    extra: str = "",
-    image_url: str | None = None,
-    image_field: str = "Back Extra",
-) -> CardSpec:
-    return CardSpec(
-        notetype="Cloze",
-        field_values={"Text": text, "Back Extra": extra},
-        image_url=image_url,
-        image_field=image_field,
-    )
+def cloze_card(text: str, extra: str = "") -> CardSpec:
+    """A sentence with a {{c1::word}} cloze. Never carries an image - the
+    picture goes on a separate picture_card() instead."""
+    return CardSpec(notetype="Cloze", field_values={"Text": text, "Back Extra": extra})
 
 
 def basic_card(
     front: str,
     back: str,
     image_url: str | None = None,
-    image_field: str = "Back",
+    image_field: str = "Front",
 ) -> CardSpec:
     return CardSpec(
         notetype="Basic",
@@ -95,6 +90,14 @@ def basic_card(
         image_url=image_url,
         image_field=image_field,
     )
+
+
+def picture_card(word: str, image_url: str, extra: str = "") -> CardSpec:
+    """A picture-recall card: the front is *only* the image; the back is
+    the Spanish word plus whatever grammar info applies (tipo de palabra,
+    genero, etc.) - all in Spanish, no English."""
+    back = f"{word}. {extra}".strip() if extra else word
+    return basic_card(front="", back=back, image_url=image_url, image_field="Front")
 
 
 def _slug_from_url(url: str) -> str:
@@ -198,12 +201,20 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="extras",
         help="'Back Extra' content, paired by position with --text.",
     )
-    cloze_parser.add_argument("--image-url", help="Image URL to attach (only valid with a single --text).")
+
+    picture_parser = subparsers.add_parser(
+        "picture", help="Add a picture card: image alone on the front, word (+ info) on the back."
+    )
+    picture_parser.add_argument("--image-url", required=True, help="Image to show on the front.")
+    picture_parser.add_argument("--word", required=True, help="The Spanish word/phrase for the back, e.g. 'la silla'.")
+    picture_parser.add_argument(
+        "--extra", default="", help="Extra Spanish info for the back (tipo de palabra, genero, etc.)."
+    )
 
     basic_parser = subparsers.add_parser("basic", help="Add a Basic (front/back) card.")
     basic_parser.add_argument("--front", required=True)
     basic_parser.add_argument("--back", required=True)
-    basic_parser.add_argument("--image-url", help="Image URL to attach to the back.")
+    basic_parser.add_argument("--image-url", help="Image URL to attach to the front.")
 
     return parser
 
@@ -216,12 +227,9 @@ def main() -> None:
         if args.extras and len(args.extras) != len(args.texts):
             parser.error("--extra must be given either zero times or once per --text")
         extras = args.extras or [""] * len(args.texts)
-        if args.image_url and len(args.texts) != 1:
-            parser.error("--image-url can only be used with a single --text")
-        cards = [
-            cloze_card(text, extra, image_url=args.image_url if i == 0 else None)
-            for i, (text, extra) in enumerate(zip(args.texts, extras))
-        ]
+        cards = [cloze_card(text, extra) for text, extra in zip(args.texts, extras)]
+    elif args.kind == "picture":
+        cards = [picture_card(args.word, args.image_url, args.extra)]
     elif args.kind == "basic":
         cards = [basic_card(args.front, args.back, image_url=args.image_url)]
     else:  # pragma: no cover - argparse enforces valid choices

@@ -34,11 +34,16 @@ collection/backend library used by the desktop app and add-ons).
   conflict with the Anki desktop app.
 - `src/anki_driver/cards.py` — the repeatable "give me a card for word X"
   workflow, generalized across note types (not coupled to Cloze). Wired up
-  as the `add-card` console script with `cloze`/`basic` subcommands (add
-  more by adding a subparser + a `*_card()` constructor, no changes to the
-  sync mechanics needed). `CardSpec` holds `notetype`, `field_values`, and
-  an optional `image_url`/`image_field`. `add_cards()` does login +
-  sync-before + add-each + sync-after in one call; reuses
+  as the `add-card` console script with `cloze`/`picture`/`basic`
+  subcommands (add more by adding a subparser + a `*_card()` constructor,
+  no changes to the sync mechanics needed). `CardSpec` holds `notetype`,
+  `field_values`, and an optional `image_url`/`image_field`. `cloze_card()`
+  takes no image params at all - **images never go on Cloze cards**;
+  `picture_card(word, image_url, extra)` builds a `Basic` note with the
+  image alone on `Front` and the word+info on `Back` (a real picture-recall
+  card, not an image bolted onto a sentence card - got this wrong once,
+  see git history). `add_cards()` does login + sync-before + add-each +
+  sync-after in one call; reuses
   `get_credentials`/`login`/`sync_now`/`open_default_collection` from
   `sync.py` rather than duplicating them. Composing the actual card content
   per word (Spanish sentence, word type, image search query, etc.) is done
@@ -55,17 +60,19 @@ collection/backend library used by the desktop app and add-ons).
 
 ## Card content conventions (Spanish vocab cards)
 
-Applies to every card added via `add-card`, not just Cloze:
+Applies to every card added via `add-card`, regardless of note type:
 
 - No English anywhere on the card — front and back, entirely in Spanish.
-- Back ("Back Extra" for Cloze) states, in Spanish, whichever of these
-  apply: tipo de palabra (sustantivo, verbo, adjetivo, adverbio,
-  preposición, pronombre, conjunción, artículo, interjección...); género
-  (masculino/femenino) for nouns/adjectives; infinitivo if the front shows
-  a conjugated verb form; preposición if the word/verb takes a fixed one
-  not already visible in the front sentence (e.g. *pensar en*, *soñar
-  con*).
+- Back ("Back Extra" for Cloze, "Back" for picture/basic) states, in
+  Spanish, whichever of these apply: tipo de palabra (sustantivo, verbo,
+  adjetivo, adverbio, preposición, pronombre, conjunción, artículo,
+  interjección...); género (masculino/femenino) for nouns/adjectives;
+  infinitivo if the front shows a conjugated verb form; preposición if the
+  word/verb takes a fixed one not already visible in the front sentence
+  (e.g. *pensar en*, *soñar con*).
 - Example: `sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud.`
+- Picture cards (`add-card picture`): the front is the image **alone** -
+  no text, no translation. Images never go on Cloze cards.
 - When retrofitting this convention onto an existing note, edit+resync
   (`col.update_note` inside a sync-before/sync-after pair) rather than
   delete+recreate, to preserve review history/scheduling.
@@ -86,6 +93,16 @@ Applies to every card added via `add-card`, not just Cloze:
   sync_media)` performs the actual sync. Both are methods on an open
   `Collection` (any open collection works for `sync_login`, since it just
   proxies to the Rust backend).
+- **`sync_collection(auth, sync_media=True)` does NOT wait for media.** It
+  only *starts* the media upload/download as a background task and returns
+  immediately - `col.media_sync_status().active` is `True` right after it
+  returns. If you close the collection then, a pending image is silently
+  dropped (its row in `collection.media.db2`'s `media` table stays
+  `dirty=1` forever, and AnkiWeb reports "image is missing" on other
+  devices). `sync.py`'s `sync_now()` polls `media_sync_status()` until
+  `active` is `False` (see `_wait_for_media_sync`) - always go through
+  `sync_now()`, never call `sync_collection` directly when media might be
+  involved.
 - `sync_collection(...).required` is an enum (`anki.sync.sync_pb2.
   SyncCollectionResponse.ChangesRequired`: `NO_CHANGES`/`NORMAL_SYNC`/
   `FULL_SYNC`/`FULL_DOWNLOAD`/`FULL_UPLOAD`), not a count. `0`
