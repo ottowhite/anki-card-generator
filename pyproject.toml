@@ -1,0 +1,19 @@
+[project]
+name = "anki-driver"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "ottowhite", email = "45281624+ottowhite@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anki>=26.9.3",
+]
+
+[project.scripts]
+anki-driver = "anki_driver:main"
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
