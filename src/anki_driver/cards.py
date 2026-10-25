@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 
 from anki.collection import Collection
 from anki.decks import DeckId
+from anki.notes import NoteId
 
 from anki_driver.images import fetch_and_resize
 from anki_driver.sync import (
@@ -121,7 +122,7 @@ def _attach_image(col: Collection, url: str) -> str:
         return col.media.add_file(str(tmp_path))
 
 
-def add_card_note(col: Collection, deck_id: DeckId, card: CardSpec) -> None:
+def add_card_note(col: Collection, deck_id: DeckId, card: CardSpec) -> NoteId:
     notetype = col.models.by_name(card.notetype)
     if notetype is None:
         raise RuntimeError(f"Note type {card.notetype!r} not found in collection")
@@ -138,6 +139,7 @@ def add_card_note(col: Collection, deck_id: DeckId, card: CardSpec) -> None:
     for name, value in resolved.items():
         note[name] = value
     col.add_note(note, deck_id)
+    return note.id
 
 
 def add_cards(
@@ -159,14 +161,25 @@ def add_cards(
         print(f"  -> {sync_now(col, auth, sync_media=sync_media)}")
 
         deck_id = col.decks.id(deck_name, create=True)
+        note_ids = []
         for card in cards:
-            add_card_note(col, deck_id, card)
+            note_ids.append(add_card_note(col, deck_id, card))
             print(f"Added {card.notetype} card to {deck_name!r}: {card.field_values}")
 
         print("Syncing after changes...")
         print(f"  -> {sync_now(col, auth, sync_media=sync_media)}")
+        _verify_uploaded(col, note_ids)
     finally:
         col.close()
+
+
+def _verify_uploaded(col: Collection, note_ids: list[NoteId]) -> None:
+    """A sync can "succeed" without uploading anything (e.g. when AnkiWeb
+    wants a full sync), so check the server actually assigned a usn."""
+    ids = ",".join(str(nid) for nid in note_ids)
+    unsynced = col.db.list(f"select id from notes where id in ({ids}) and usn = -1")
+    if unsynced:
+        raise RuntimeError(f"Note(s) {unsynced} were added locally but did not reach AnkiWeb")
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -51,7 +51,15 @@ Three traps:
    (`SyncCollectionResponse.ChangesRequired`:
    `NO_CHANGES`/`NORMAL_SYNC`/`FULL_SYNC`/`FULL_DOWNLOAD`/`FULL_UPLOAD`).
    `0` (`NO_CHANGES`) after a successful call means both sides now match —
-   the good result, not "nothing happened".
+   the good result, not "nothing happened". The `FULL_*` values mean the
+   call did **nothing** — new notes stay at `usn -1` and never reach other
+   devices, though no error is raised (this shipped a "synced" card that
+   never arrived). `sync_now()` resolves them with a full *download*
+   (AnkiWeb wins) when nothing local is pending, and raises otherwise; it
+   never auto-uploads. Full syncs must use `out.new_endpoint` (the
+   account's shard, e.g. `sync3.ankiweb.net`) or AnkiWeb answers HTTP 400
+   "missing original size". `add-card` also checks its new notes got a
+   server `usn` after the final sync.
 
 3. **Don't verify a sync with a fresh collection.** An unrelated new
    collection shares no sync history, so pulling it needs an explicit

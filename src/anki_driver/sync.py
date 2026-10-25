@@ -29,6 +29,15 @@ from pathlib import Path
 
 from anki.collection import Collection
 from anki.sync import SyncAuth
+from anki.sync_pb2 import SyncCollectionResponse
+
+ChangesRequired = SyncCollectionResponse.ChangesRequired
+FULL_SYNC_REQUIRED = {
+    ChangesRequired.FULL_SYNC,
+    ChangesRequired.FULL_DOWNLOAD,
+    ChangesRequired.FULL_UPLOAD,
+}
+PENDING_CHANGE_TABLES = ("notes", "cards", "revlog", "graves", "decks", "notetypes")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_COLLECTION_PATH = PROJECT_ROOT / "data" / "collection.anki2"
@@ -63,9 +72,53 @@ def sync_now(col: Collection, auth: SyncAuth, sync_media: bool = True) -> str:
     synced, but its image never reached AnkiWeb ("image is missing").
     """
     out = col.sync_collection(auth, sync_media=sync_media)
+    if out.HasField("new_endpoint"):
+        # AnkiWeb moved the account to another shard; full syncs must use it.
+        auth.endpoint = out.new_endpoint
+    result = ChangesRequired.Name(out.required)
+    if out.required in FULL_SYNC_REQUIRED:
+        _full_download(col, auth, out, sync_media)
+        result += " (resolved: downloaded from AnkiWeb)"
     if sync_media:
         _wait_for_media_sync(col)
-    return str(out.required)
+    return result
+
+
+def pending_change_count(col: Collection) -> int:
+    """Rows changed locally but not yet on AnkiWeb (usn -1)."""
+    return sum(
+        col.db.scalar(f"select count() from {table} where usn = -1")
+        for table in PENDING_CHANGE_TABLES
+    )
+
+
+def _full_download(col: Collection, auth: SyncAuth, out, sync_media: bool) -> None:
+    """Resolve a "full sync required" result by replacing the local copy
+    with AnkiWeb's - AnkiWeb (and the phone) is the source of truth here.
+
+    A normal `sync_collection` silently does nothing in this state: it
+    returns FULL_SYNC/FULL_DOWNLOAD and leaves new notes at usn -1, so a
+    card "added and synced" never reaches other devices. Downloading would
+    discard local-only changes, so refuse if there are any, and never
+    auto-upload (that would overwrite AnkiWeb).
+    """
+    name = ChangesRequired.Name(out.required)
+    if out.required == ChangesRequired.FULL_UPLOAD:
+        raise RuntimeError(f"AnkiWeb requires {name}; refusing to overwrite AnkiWeb automatically")
+    pending = pending_change_count(col)
+    if pending:
+        raise RuntimeError(
+            f"AnkiWeb requires {name}, but {pending} local change(s) are unsynced "
+            "and would be lost by a download. Resolve manually."
+        )
+    print(f"  AnkiWeb requires {name}; downloading the full collection...")
+    col.close_for_full_sync()
+    col.full_upload_or_download(
+        auth=auth,
+        server_usn=out.server_media_usn if sync_media else None,
+        upload=False,
+    )
+    col.reopen(after_full_sync=True)
 
 
 def _wait_for_media_sync(
