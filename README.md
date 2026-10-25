@@ -31,6 +31,9 @@ uv run add-card picture --image-url "https://..." --word "la silla" --grammar ".
 uv run add-card basic --front "..." --back "..." [--image-url URL]
 ```
 
+Repeat `--text` (cloze) or `--front`/`--back` (basic) to add several cards
+in one run.
+
 Each `add-card` run syncs, adds the note(s), then syncs again — waiting for
 any image to finish uploading before it returns. `--deck` targets a deck
 other than the default (`Vocabulario`).

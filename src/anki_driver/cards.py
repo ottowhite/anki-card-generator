@@ -24,7 +24,9 @@ Usage:
     uv run add-card picture --image-url "https://..." --word "la silla" \\
         --grammar "sustantivo · femenino" --definition "Mueble para sentarse."
 
-    uv run add-card basic --front "..." --back "..." [--image-url "https://..."]
+    # Repeat --front/--back (paired by position) for several cards in one run.
+    uv run add-card basic --front "..." --back "..." [--image-url "https://..."] \\
+        --front "..." --back "..."
 """
 
 from __future__ import annotations
@@ -260,9 +262,19 @@ def _build_parser() -> argparse.ArgumentParser:
         picture_parser.add_argument(f"--{name}", default="", help=help_text)
 
     basic_parser = subparsers.add_parser("basic", help="Add a Basic (front/back) card.")
-    basic_parser.add_argument("--front", required=True)
-    basic_parser.add_argument("--back", required=True)
-    basic_parser.add_argument("--image-url", help="Image URL to attach to the front.")
+    basic_parser.add_argument(
+        "--front", action="append", required=True, dest="fronts", help="Repeat for multiple cards."
+    )
+    basic_parser.add_argument(
+        "--back", action="append", required=True, dest="backs", help="Paired by position with --front."
+    )
+    basic_parser.add_argument(
+        "--image-url",
+        action="append",
+        default=[],
+        dest="image_urls",
+        help="Image URL to attach to the front. Paired by position with --front; pass '' to skip one.",
+    )
 
     return parser
 
@@ -287,7 +299,16 @@ def main() -> None:
         info = {name: getattr(args, name) for name in INFO_ARGS}
         cards = [picture_card(args.word, args.image_url, **info)]
     elif args.kind == "basic":
-        cards = [basic_card(args.front, args.back, image_url=args.image_url)]
+        n = len(args.fronts)
+        if len(args.backs) != n:
+            parser.error("--back must be given once per --front")
+        if args.image_urls and len(args.image_urls) != n:
+            parser.error("--image-url must be given either zero times or once per --front")
+        image_urls = args.image_urls or [""] * n
+        cards = [
+            basic_card(front, back, image_url=image_url or None)
+            for front, back, image_url in zip(args.fronts, args.backs, image_urls)
+        ]
     else:  # pragma: no cover - argparse enforces valid choices
         raise AssertionError(f"Unhandled kind: {args.kind!r}")
 

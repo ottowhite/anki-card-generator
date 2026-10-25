@@ -11,6 +11,11 @@ Everything needed is here. (Infra internals live in
 **Every card is entirely in Spanish. No English anywhere — not a
 translation, not a gloss, nothing.**
 
+One exception: a **basic** card may have an English front (English
+prompt → Spanish answer, e.g. `progressive rock` → `el rock progresivo`),
+but only when the user explicitly asks for that card to have English. Never
+choose it on your own; cloze and picture cards stay all-Spanish regardless.
+
 ## Talk to the user in Spanish
 
 The user is a Spanish student and this is practice. If anything needs
@@ -46,7 +51,7 @@ the one most common in those regions — not the peninsular form.
 |---|---|---|
 | Verb, idiom, or clearest in context | **cloze** | Sentence with the target hidden: `...mucha {{c1::habilidad}}...` |
 | Concrete, picturable noun (object/animal/place) | **picture** | Front = image *only*, no text. Back = word + grammar info. |
-| Anything else | **basic** | Plain front/back, e.g. a Spanish prompt → answer |
+| Anything else | **basic** | Plain front/back, e.g. a Spanish prompt → answer (English front only if the user asked) |
 
 Images never go on cloze cards. A picture card is always the separate
 front=image / back=word shape, never an image bolted onto a sentence.
@@ -87,8 +92,10 @@ uv run add-card basic --front "..." --back "..."
 ```
 
 `--deck "Nombre"` targets a deck other than the default (`Vocabulario`).
-Repeat `--text` (cloze only) for several cards in one run; each info
+Repeat `--text` (cloze) for several cards in one run; each info
 option is then given once per `--text` (pass `""` to skip one) or not at all.
+Likewise repeat `--front`/`--back` pairs (basic) for several basic cards in
+one run, rather than one run per card. Picture cards are one per run.
 
 The command syncs before and after, so the card is live on AnkiWeb when it
 finishes. Then report back **in Spanish**, quoting what you actually added
