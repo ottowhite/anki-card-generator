@@ -16,6 +16,13 @@ collection/backend library used by the desktop app and add-ons).
   built-in "Basic" note type. `main()` runs `demo()` against a temp
   collection; wired up as the `anki-driver` console script in
   `pyproject.toml`.
+- `src/anki_driver/sync.py` — signs in to AnkiWeb and syncs a real local
+  collection. Wired up as the `anki-driver-sync` console script. Reads
+  `ANKIWEB_USERNAME`/`ANKIWEB_PASSWORD` from the environment (falls back to
+  `input()`/`getpass` prompts) — credentials must never be hardcoded, passed
+  as CLI args, or committed. `find_default_collection()` auto-detects the
+  current profile's `collection.anki2` under
+  `~/Library/Application Support/Anki2/`.
 
 ## Key API notes (anki package)
 
@@ -28,3 +35,9 @@ collection/backend library used by the desktop app and add-ons).
   (`note["Front"] = ...`), then persist with
   `col.add_note(note, col.decks.id("Default", create=True))`.
 - Always `col.close()` when done (demo uses `try/finally`).
+- AnkiWeb sign-in/sync: `col.sync_login(username, password, endpoint)`
+  returns a `SyncAuth` (session `hkey`); `col.sync_collection(auth,
+  sync_media)` performs the actual sync. Both are methods on an open
+  `Collection` (any open collection works for `sync_login`, since it just
+  proxies to the Rust backend). Syncing a profile that's open in the Anki
+  desktop app will fail/conflict on the file lock — close the app first.
