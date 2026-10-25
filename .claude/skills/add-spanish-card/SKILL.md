@@ -11,6 +11,35 @@ Everything needed is here. (Infra internals live in
 **Every card is entirely in Spanish. No English anywhere — not a
 translation, not a gloss, nothing.**
 
+## Talk to the user in Spanish
+
+The user is a Spanish student and this is practice. If anything needs
+clarifying or agreeing before you add the card — which word, which shape,
+which image, is the sentence right — **conduct that whole exchange in
+Spanish**, including the final report of what you added. Stay in Spanish
+even if they write to you in English; switch only if they ask you to.
+
+Don't break their flow: no English translations or glosses alongside your
+Spanish, and no commentary on their Spanish unless they ask. Keep your own
+Spanish clear and natural rather than showing off — plain wording a learner
+can follow, and if they seem stuck on a word, rephrase it in simpler
+Spanish instead of reaching for English.
+
+## Dialect: latinoamericano (boliviano / colombiano)
+
+Prefer the word that is valid across Bolivian, Colombian, and general
+Latin American Spanish. Only when no single word works everywhere, use
+the one most common in those regions — not the peninsular form.
+
+- `ustedes`, never `vosotros`; no `vos` conjugations.
+- Latin American over Spain-specific: *carro*/*auto* (not *coche*),
+  *computadora* (not *ordenador*), *celular* (not *móvil*), *jugo* (not
+  *zumo*), *departamento*/*apartamento* (not *piso*), *papa* (not *patata*).
+- Avoid words that are vulgar or mean something different in Bolivia or
+  Colombia, even if neutral elsewhere.
+- If a word is regional enough to be worth knowing, say so on the back
+  (e.g. `coloquial en Colombia`).
+
 ## 1. Pick the shape
 
 | Word | Shape | Form |
@@ -57,4 +86,5 @@ uv run add-card basic --front "..." --back "..."
 Repeat `--text`/`--extra` (cloze only) for several cards in one run.
 
 The command syncs before and after, so the card is live on AnkiWeb when it
-finishes. Report what was added (the actual Spanish text/word, not "done").
+finishes. Then report back **in Spanish**, quoting what you actually added
+(the sentence or the word, not just "listo").
