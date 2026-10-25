@@ -1,30 +1,37 @@
-"""Add Cloze cards to the Vocabulario deck, syncing before and after.
+"""Add one or more cards to the collection, syncing before and after.
 
-This mechanizes the repeatable workflow: sync (pull latest from AnkiWeb),
-add one or more new Cloze notes, sync again (push them back up). The
-actual word -> Spanish-sentence-with-cloze authoring is done by whoever
-calls this (e.g. Claude, composing a fully-Spanish sentence per word) -
-this module just handles the sync/add/sync mechanics reliably.
+Mechanizes the repeatable workflow: sync (pull latest from AnkiWeb), add
+the new note(s), sync again (push them back up). Not coupled to any one
+note type - a `CardSpec` just names the note type and its field values, so
+Cloze, Basic, or anything else can be added the same way. Optionally
+attaches a web image (fetched and shrunk to a low-res JPEG) to a chosen
+field.
+
+Composing the actual card content (the Spanish sentence/cloze, word type,
+gender, infinitive, an image search query, etc.) is done by whoever calls
+this (e.g. Claude) - this module only owns the sync/add/sync mechanics.
 
 Usage:
-    uv run anki-driver-add-cloze \\
+    uv run add-card cloze \\
         --text "Para programar bien necesitas mucha {{c1::habilidad}} y practica." \\
-        --extra "Sinonimos: destreza, capacidad, aptitud."
+        --extra "sustantivo, femenino. Sinonimos: destreza, capacidad."
 
-    # Multiple cards in one go - pair --text/--extra by position:
-    uv run anki-driver-add-cloze \\
-        --text "Primera {{c1::frase}}." --extra "nota 1" \\
-        --text "Segunda {{c1::frase}}." --extra "nota 2"
+    uv run add-card basic --front "..." --back "..." --image-url "https://..."
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+import re
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from anki.collection import Collection
 from anki.decks import DeckId
 
+from anki_driver.images import fetch_and_resize
 from anki_driver.sync import (
     DEFAULT_COLLECTION_PATH,
     get_credentials,
@@ -34,35 +41,109 @@ from anki_driver.sync import (
 )
 
 DEFAULT_DECK = "Vocabulario"
-CLOZE_NOTETYPE = "Cloze"
 
 
 @dataclass
-class ClozeCard:
-    text: str  # e.g. 'Ella tiene mucha {{c1::habilidad}} para esto.'
-    extra: str = ""  # optional "Back Extra" content (synonyms, notes, etc.)
+class CardSpec:
+    """A note to add: which note type, its field values, and an optional
+    image to attach to one of those fields."""
+
+    notetype: str
+    field_values: dict[str, str] = field(default_factory=dict)
+    image_url: str | None = None
+    image_field: str = ""  # required if image_url is set
+
+    def __post_init__(self) -> None:
+        if self.image_url and not self.image_field:
+            raise ValueError("image_field is required when image_url is set")
+
+    def resolve_fields(self, col: Collection) -> dict[str, str]:
+        """Field values with the image (if any) downloaded, shrunk, added to
+        the collection's media, and embedded as an <img> tag."""
+        fields = dict(self.field_values)
+        if self.image_url:
+            filename = _attach_image(col, self.image_url)
+            img_tag = f'<img src="{filename}">'
+            existing = fields.get(self.image_field, "")
+            fields[self.image_field] = f"{existing} {img_tag}".strip()
+        return fields
 
 
-def add_cloze_note(col: Collection, deck_id: DeckId, card: ClozeCard) -> None:
-    notetype = col.models.by_name(CLOZE_NOTETYPE)
+def cloze_card(
+    text: str,
+    extra: str = "",
+    image_url: str | None = None,
+    image_field: str = "Back Extra",
+) -> CardSpec:
+    return CardSpec(
+        notetype="Cloze",
+        field_values={"Text": text, "Back Extra": extra},
+        image_url=image_url,
+        image_field=image_field,
+    )
+
+
+def basic_card(
+    front: str,
+    back: str,
+    image_url: str | None = None,
+    image_field: str = "Back",
+) -> CardSpec:
+    return CardSpec(
+        notetype="Basic",
+        field_values={"Front": front, "Back": back},
+        image_url=image_url,
+        image_field=image_field,
+    )
+
+
+def _slug_from_url(url: str) -> str:
+    """A readable base filename derived from the URL, e.g. 'old-chair' from
+    .../Special:FilePath/Old-chair.jpg - falls back to 'image' if nothing
+    usable is found."""
+    last_segment = urlsplit(url).path.rsplit("/", 1)[-1]
+    stem = Path(last_segment).stem or "image"
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", stem).strip("-").lower()
+    return slug or "image"
+
+
+def _attach_image(col: Collection, url: str) -> str:
+    """Download+shrink the image at `url` and add it to the collection's
+    media folder, returning the (deduplicated) stored filename."""
+    data = fetch_and_resize(url)
+    slug = _slug_from_url(url)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir) / f"{slug}.jpg"
+        tmp_path.write_bytes(data)
+        return col.media.add_file(str(tmp_path))
+
+
+def add_card_note(col: Collection, deck_id: DeckId, card: CardSpec) -> None:
+    notetype = col.models.by_name(card.notetype)
     if notetype is None:
-        raise RuntimeError(f"Note type {CLOZE_NOTETYPE!r} not found in collection")
-    if "{{c1::" not in card.text and "{{c" not in card.text:
-        raise ValueError(f"Cloze text has no {{{{c1::...}}}} marker: {card.text!r}")
+        raise RuntimeError(f"Note type {card.notetype!r} not found in collection")
 
     note = col.new_note(notetype)
-    note["Text"] = card.text
-    note["Back Extra"] = card.extra
+    field_names = set(note.keys())
+    resolved = card.resolve_fields(col)
+    unknown = set(resolved) - field_names
+    if unknown:
+        raise ValueError(
+            f"Note type {card.notetype!r} has no field(s) {sorted(unknown)}; "
+            f"it has {sorted(field_names)}"
+        )
+    for name, value in resolved.items():
+        note[name] = value
     col.add_note(note, deck_id)
 
 
-def add_cloze_cards(
-    cards: list[ClozeCard],
+def add_cards(
+    cards: list[CardSpec],
     deck_name: str = DEFAULT_DECK,
-    collection_path=DEFAULT_COLLECTION_PATH,
-    sync_media: bool = False,
+    collection_path: Path = DEFAULT_COLLECTION_PATH,
+    sync_media: bool = True,
 ) -> None:
-    """Sync, add the given cloze cards to `deck_name`, then sync again."""
+    """Sync, add the given cards to `deck_name`, then sync again."""
     if not cards:
         raise ValueError("No cards given")
 
@@ -76,8 +157,8 @@ def add_cloze_cards(
 
         deck_id = col.decks.id(deck_name, create=True)
         for card in cards:
-            add_cloze_note(col, deck_id, card)
-            print(f"Added card to {deck_name!r}: {card.text}")
+            add_card_note(col, deck_id, card)
+            print(f"Added {card.notetype} card to {deck_name!r}: {card.field_values}")
 
         print("Syncing after changes...")
         print(f"  -> {sync_now(col, auth, sync_media=sync_media)}")
@@ -85,44 +166,72 @@ def add_cloze_cards(
         col.close()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--text",
-        action="append",
-        required=True,
-        dest="texts",
-        help="A fully-formed cloze sentence, e.g. 'Hoy tengo {{c1::prisa}}.' "
-        "Repeat --text for multiple cards.",
-    )
-    parser.add_argument(
-        "--extra",
-        action="append",
-        default=[],
-        dest="extras",
-        help="Optional 'Back Extra' content, paired by position with --text. "
-        "Repeat alongside --text, or omit entirely for no extras.",
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="add-card",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--deck", default=DEFAULT_DECK, help=f"Target deck (default: {DEFAULT_DECK}).")
     parser.add_argument(
         "--collection",
-        type=type(DEFAULT_COLLECTION_PATH),
+        type=Path,
         default=DEFAULT_COLLECTION_PATH,
         help=f"Path to the .anki2 collection file (default: {DEFAULT_COLLECTION_PATH}).",
     )
-    parser.add_argument("--sync-media", action="store_true", help="Also sync media files.")
+    parser.add_argument("--no-media", action="store_true", help="Skip media sync.")
+
+    subparsers = parser.add_subparsers(dest="kind", required=True)
+
+    cloze_parser = subparsers.add_parser("cloze", help="Add Cloze card(s).")
+    cloze_parser.add_argument(
+        "--text",
+        action="append",
+        required=True,
+        dest="texts",
+        help="A cloze sentence, e.g. 'Hoy tengo {{c1::prisa}}.' Repeat for multiple cards.",
+    )
+    cloze_parser.add_argument(
+        "--extra",
+        action="append",
+        default=[],
+        dest="extras",
+        help="'Back Extra' content, paired by position with --text.",
+    )
+    cloze_parser.add_argument("--image-url", help="Image URL to attach (only valid with a single --text).")
+
+    basic_parser = subparsers.add_parser("basic", help="Add a Basic (front/back) card.")
+    basic_parser.add_argument("--front", required=True)
+    basic_parser.add_argument("--back", required=True)
+    basic_parser.add_argument("--image-url", help="Image URL to attach to the back.")
+
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
 
-    if args.extras and len(args.extras) != len(args.texts):
-        parser.error("--extra must be given either zero times or once per --text")
-    extras = args.extras or [""] * len(args.texts)
+    if args.kind == "cloze":
+        if args.extras and len(args.extras) != len(args.texts):
+            parser.error("--extra must be given either zero times or once per --text")
+        extras = args.extras or [""] * len(args.texts)
+        if args.image_url and len(args.texts) != 1:
+            parser.error("--image-url can only be used with a single --text")
+        cards = [
+            cloze_card(text, extra, image_url=args.image_url if i == 0 else None)
+            for i, (text, extra) in enumerate(zip(args.texts, extras))
+        ]
+    elif args.kind == "basic":
+        cards = [basic_card(args.front, args.back, image_url=args.image_url)]
+    else:  # pragma: no cover - argparse enforces valid choices
+        raise AssertionError(f"Unhandled kind: {args.kind!r}")
 
-    cards = [ClozeCard(text=t, extra=e) for t, e in zip(args.texts, extras)]
-    add_cloze_cards(
+    add_cards(
         cards,
         deck_name=args.deck,
         collection_path=args.collection,
-        sync_media=args.sync_media,
+        sync_media=not args.no_media,
     )
 
 

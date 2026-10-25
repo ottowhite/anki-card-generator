@@ -33,15 +33,42 @@ collection/backend library used by the desktop app and add-ons).
   Operating on this copy instead of the global profile means no file-lock
   conflict with the Anki desktop app.
 - `src/anki_driver/cards.py` — the repeatable "give me a card for word X"
-  workflow: sync -> add one or more Cloze notes to the Vocabulario deck ->
-  sync. Wired up as the `anki-driver-add-cloze` console script. `ClozeCard`
-  holds `text` (full Spanish sentence with `{{c1::word}}`) and optional
-  `extra` (Cloze note type's "Back Extra" field). `add_cloze_cards()` does
-  login + sync-before + add-each + sync-after in one call; reuses
+  workflow, generalized across note types (not coupled to Cloze). Wired up
+  as the `add-card` console script with `cloze`/`basic` subcommands (add
+  more by adding a subparser + a `*_card()` constructor, no changes to the
+  sync mechanics needed). `CardSpec` holds `notetype`, `field_values`, and
+  an optional `image_url`/`image_field`. `add_cards()` does login +
+  sync-before + add-each + sync-after in one call; reuses
   `get_credentials`/`login`/`sync_now`/`open_default_collection` from
-  `sync.py` rather than duplicating them. Composing the actual Spanish
-  sentence per English word is done by the caller (e.g. Claude) — this
-  module only owns the sync/add/sync mechanics.
+  `sync.py` rather than duplicating them. Composing the actual card content
+  per word (Spanish sentence, word type, image search query, etc.) is done
+  by the caller (e.g. Claude) — this module only owns the sync/add/sync
+  mechanics plus image attachment plumbing.
+- `src/anki_driver/images.py` — `fetch_and_resize(url)` downloads an image
+  and re-encodes it as a JPEG capped at 400px/quality 70 (`Pillow`), small
+  enough to keep AnkiWeb's media quota and sync time low. `add-card
+  --image-url` wires it to `col.media.add_file()`, which dedups by content
+  hash; the stored filename is derived from the URL's last path segment
+  (see `_slug_from_url`) rather than a random tempfile name, so media files
+  stay recognizable. Finding the image URL itself (e.g. via a web image
+  search for a concrete noun) is the caller's job, not this module's.
+
+## Card content conventions (Spanish vocab cards)
+
+Applies to every card added via `add-card`, not just Cloze:
+
+- No English anywhere on the card — front and back, entirely in Spanish.
+- Back ("Back Extra" for Cloze) states, in Spanish, whichever of these
+  apply: tipo de palabra (sustantivo, verbo, adjetivo, adverbio,
+  preposición, pronombre, conjunción, artículo, interjección...); género
+  (masculino/femenino) for nouns/adjectives; infinitivo if the front shows
+  a conjugated verb form; preposición if the word/verb takes a fixed one
+  not already visible in the front sentence (e.g. *pensar en*, *soñar
+  con*).
+- Example: `sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud.`
+- When retrofitting this convention onto an existing note, edit+resync
+  (`col.update_note` inside a sync-before/sync-after pair) rather than
+  delete+recreate, to preserve review history/scheduling.
 
 ## Key API notes (anki package)
 

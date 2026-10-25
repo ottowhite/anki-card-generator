@@ -72,34 +72,70 @@ from the real profile again later:
 cp "$HOME/Library/Application Support/Anki2/User 1/collection.anki2" data/collection.anki2
 ```
 
-### Adding Cloze cards (sync -> add -> sync)
+### Adding cards (sync -> add -> sync)
 
 The repeatable workflow for "give me a card for word X": sync, add one or
-more Cloze notes to the Vocabulario deck, sync again.
+more notes, sync again. Not coupled to any single note type — `cloze` and
+`basic` subcommands exist today, more can be added later.
 
 ```bash
-uv run anki-driver-add-cloze \
+uv run add-card cloze \
   --text "Para programar bien necesitas mucha {{c1::habilidad}} y práctica constante." \
-  --extra "Sinónimos: destreza, capacidad, aptitud."
+  --extra "sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud."
 ```
 
 - `--text` is a complete Spanish sentence with the target word wrapped in
   `{{c1::...}}` — repeat `--text` for multiple cards in one run.
 - `--extra` (optional) fills the Cloze note type's "Back Extra" field;
-  pair it positionally with `--text`, once per card, or omit entirely.
+  pair it positionally with `--text`, once per card, or omit entirely. See
+  **Card content conventions** below for what goes in here.
 - `--deck` overrides the target deck (default: `Vocabulario`).
+- `--image-url URL` attaches a web image, downloaded and shrunk to a small
+  low-res JPEG (see below). Only valid with a single `--text`.
+
+```bash
+uv run add-card basic --front "..." --back "..." [--image-url URL]
+```
 
 Each run: logs in, syncs (pulls latest), adds the note(s), syncs again
-(pushes them up). Composing the actual Spanish sentence per English word
-is a judgment call made by whoever invokes this (e.g. Claude) — this script
-only handles the sync/add/sync mechanics.
+(pushes them up). Composing the actual card content (sentence, word type,
+image search query, etc.) is a judgment call made by whoever invokes this
+(e.g. Claude) — this script only handles the sync/add/sync mechanics, plus
+the image download/resize/attach plumbing.
+
+#### Card content conventions (Spanish vocab cards)
+
+All cards are entirely in Spanish — no English anywhere on the card. The
+back (Cloze "Back Extra") includes, in Spanish, whatever of these apply:
+
+- **Tipo de palabra**: sustantivo, verbo, adjetivo, adverbio, preposición,
+  pronombre, conjunción, artículo, interjección, etc.
+- **Género**: masculino / femenino (for nouns/adjectives).
+- **Infinitivo**: if the front shows a conjugated verb form, give the
+  infinitive.
+- **Preposición**: if the word/verb takes a fixed preposition that isn't
+  already visible in the front sentence (e.g. *pensar en*, *soñar con*).
+- Anything else useful (synonyms, a brief Spanish clarification), also in
+  Spanish.
+
+Example: `sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud.`
+
+#### Images
+
+`anki_driver.images.fetch_and_resize(url)` downloads an image and
+re-encodes it as a JPEG capped at 400px on the long side — "low resolution"
+is deliberate, to keep the collection and AnkiWeb's media quota small.
+Finding a suitable image URL (e.g. via a web image search for a concrete
+object) is done by whoever calls `add-card`, not by this code.
 
 ## Project layout
 
 - `src/anki_driver/__init__.py` — demo: create/open a collection, add a note
 - `src/anki_driver/sync.py` — AnkiWeb login + sync helpers (`anki-driver-sync`)
-- `src/anki_driver/cards.py` — add Cloze cards with sync-before/sync-after
-  (`anki-driver-add-cloze`)
+- `src/anki_driver/cards.py` — generic add-card mechanics: sync-before,
+  add note(s) of any note type, sync-after (`add-card`)
+- `src/anki_driver/images.py` — download + shrink a web image for attaching
+  to a card
 - `data/collection.anki2` — repo-local collection copy (gitignored)
 - `.envrc` / `.env.example` / `.env.local` — direnv-managed credentials
-- `pyproject.toml` — dependencies (`anki`) and project metadata
+- `pyproject.toml` — dependencies (`anki`, `pillow`) and project metadata
