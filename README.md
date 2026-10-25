@@ -72,10 +72,34 @@ from the real profile again later:
 cp "$HOME/Library/Application Support/Anki2/User 1/collection.anki2" data/collection.anki2
 ```
 
+### Adding Cloze cards (sync -> add -> sync)
+
+The repeatable workflow for "give me a card for word X": sync, add one or
+more Cloze notes to the Vocabulario deck, sync again.
+
+```bash
+uv run anki-driver-add-cloze \
+  --text "Para programar bien necesitas mucha {{c1::habilidad}} y práctica constante." \
+  --extra "Sinónimos: destreza, capacidad, aptitud."
+```
+
+- `--text` is a complete Spanish sentence with the target word wrapped in
+  `{{c1::...}}` — repeat `--text` for multiple cards in one run.
+- `--extra` (optional) fills the Cloze note type's "Back Extra" field;
+  pair it positionally with `--text`, once per card, or omit entirely.
+- `--deck` overrides the target deck (default: `Vocabulario`).
+
+Each run: logs in, syncs (pulls latest), adds the note(s), syncs again
+(pushes them up). Composing the actual Spanish sentence per English word
+is a judgment call made by whoever invokes this (e.g. Claude) — this script
+only handles the sync/add/sync mechanics.
+
 ## Project layout
 
 - `src/anki_driver/__init__.py` — demo: create/open a collection, add a note
-- `src/anki_driver/sync.py` — AnkiWeb login + sync (`anki-driver-sync`)
+- `src/anki_driver/sync.py` — AnkiWeb login + sync helpers (`anki-driver-sync`)
+- `src/anki_driver/cards.py` — add Cloze cards with sync-before/sync-after
+  (`anki-driver-add-cloze`)
 - `data/collection.anki2` — repo-local collection copy (gitignored)
 - `.envrc` / `.env.example` / `.env.local` — direnv-managed credentials
 - `pyproject.toml` — dependencies (`anki`) and project metadata

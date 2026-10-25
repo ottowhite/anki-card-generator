@@ -15,12 +15,8 @@ wheels/
 # Secrets - real credentials, never commit. .env.example is the committed template.
 .env.local
 
-# Local copy of the Anki collection (personal data, binary, changes on every sync)
-data/*.anki2
-data/*.anki2-wal
-data/*.anki2-shm
-data/*.anki21
-data/*.anki21b
-data/media.db2
-data/media.db2-wal
-data/media.db2-shm
+# Local copy of the Anki collection and its media db (personal data, binary,
+# changes on every sync) - ignore everything generated in data/ except the
+# placeholder that keeps the directory in git.
+data/*
+!data/.gitkeep

@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 anki-driver = "anki_driver:main"
 anki-driver-sync = "anki_driver.sync:main"
+anki-driver-add-cloze = "anki_driver.cards:main"
 
 [build-system]
 requires = ["uv_build>=0.12.11,<0.13.0"]

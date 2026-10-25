@@ -32,6 +32,16 @@ collection/backend library used by the desktop app and add-ons).
   once via `cp` from `~/Library/Application Support/Anki2/User 1/collection.anki2`).
   Operating on this copy instead of the global profile means no file-lock
   conflict with the Anki desktop app.
+- `src/anki_driver/cards.py` — the repeatable "give me a card for word X"
+  workflow: sync -> add one or more Cloze notes to the Vocabulario deck ->
+  sync. Wired up as the `anki-driver-add-cloze` console script. `ClozeCard`
+  holds `text` (full Spanish sentence with `{{c1::word}}`) and optional
+  `extra` (Cloze note type's "Back Extra" field). `add_cloze_cards()` does
+  login + sync-before + add-each + sync-after in one call; reuses
+  `get_credentials`/`login`/`sync_now`/`open_default_collection` from
+  `sync.py` rather than duplicating them. Composing the actual Spanish
+  sentence per English word is done by the caller (e.g. Claude) — this
+  module only owns the sync/add/sync mechanics.
 
 ## Key API notes (anki package)
 
@@ -49,3 +59,16 @@ collection/backend library used by the desktop app and add-ons).
   sync_media)` performs the actual sync. Both are methods on an open
   `Collection` (any open collection works for `sync_login`, since it just
   proxies to the Rust backend).
+- `sync_collection(...).required` is an enum (`anki.sync.sync_pb2.
+  SyncCollectionResponse.ChangesRequired`: `NO_CHANGES`/`NORMAL_SYNC`/
+  `FULL_SYNC`/`FULL_DOWNLOAD`/`FULL_UPLOAD`), not a count. `0`
+  (`NO_CHANGES`) after a successful call means the sync completed and both
+  sides now match — that's the expected/good result, not "nothing
+  happened." To verify a change actually reached the server, don't spin up
+  a brand-new unrelated local collection and check if it's populated — an
+  unrelated collection has no shared sync history, so pulling it requires
+  an explicit full-sync negotiation (`full_upload_or_download`) that
+  `sync_collection` alone won't perform, giving a false "it's not there"
+  reading. Instead check each note/card's `usn` column directly (`col.db.all
+  ("select id, usn from notes where ...")`) — a positive, server-assigned
+  `usn` confirms the server has it; `-1` means still pending.

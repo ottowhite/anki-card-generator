@@ -14,6 +14,9 @@ prompt (`getpass`) instead - it is never echoed or logged.
 By default this syncs data/collection.anki2, a repo-local copy of the
 collection, decoupled from the one open in the Anki desktop app - no need
 to close the app first.
+
+The `get_credentials`/`login`/`sync_now` helpers here are shared with other
+scripts (e.g. `cards.py`) that need to sync before/after making changes.
 """
 
 from __future__ import annotations
@@ -24,9 +27,37 @@ import os
 from pathlib import Path
 
 from anki.collection import Collection
+from anki.sync import SyncAuth
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_COLLECTION_PATH = PROJECT_ROOT / "data" / "collection.anki2"
+
+
+def get_credentials() -> tuple[str, str]:
+    """Read AnkiWeb credentials from the environment, prompting if unset."""
+    username = os.environ.get("ANKIWEB_USERNAME")
+    if not username:
+        username = input("AnkiWeb username/email: ")
+    password = os.environ.get("ANKIWEB_PASSWORD")
+    if not password:
+        password = getpass.getpass("AnkiWeb password: ")
+    return username, password
+
+
+def login(col: Collection, username: str, password: str) -> SyncAuth:
+    """Exchange AnkiWeb credentials for a SyncAuth (session key)."""
+    return col.sync_login(username=username, password=password, endpoint=None)
+
+
+def sync_now(col: Collection, auth: SyncAuth, sync_media: bool = True) -> str:
+    """Run one sync pass and return a human-readable result."""
+    out = col.sync_collection(auth, sync_media=sync_media)
+    return str(out.required)
+
+
+def open_default_collection(collection_path: Path = DEFAULT_COLLECTION_PATH) -> Collection:
+    collection_path.parent.mkdir(parents=True, exist_ok=True)
+    return Collection(str(collection_path))
 
 
 def main() -> None:
@@ -44,24 +75,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    username = os.environ.get("ANKIWEB_USERNAME")
-    if not username:
-        username = input("AnkiWeb username/email: ")
-    password = os.environ.get("ANKIWEB_PASSWORD")
-    if not password:
-        password = getpass.getpass("AnkiWeb password: ")
+    username, password = get_credentials()
 
-    collection_path: Path = args.collection
-    collection_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"Opening collection: {collection_path}")
-    col = Collection(str(collection_path))
+    print(f"Opening collection: {args.collection}")
+    col = open_default_collection(args.collection)
     try:
         print("Logging in to AnkiWeb...")
-        auth = col.sync_login(username=username, password=password, endpoint=None)
+        auth = login(col, username, password)
         print("Login succeeded. Syncing collection...")
-        out = col.sync_collection(auth, sync_media=not args.no_media)
-        print(f"Sync finished: {out.required}")
+        result = sync_now(col, auth, sync_media=not args.no_media)
+        print(f"Sync finished: {result}")
     finally:
         col.close()
 
