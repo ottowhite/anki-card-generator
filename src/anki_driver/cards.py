@@ -14,6 +14,11 @@ separate pieces (--grammar, --definition, --synonyms, --note), so every
 card looks the same: big bold word, small grey grammar line, then
 definition and synonyms on their own lines.
 
+One run adds any number of cards of a single type: every option is
+repeatable and paired by position, one card per occurrence. Required
+options are given once per card; optional ones once per card (pass '' to
+skip one) or not at all.
+
 Usage:
     uv run add-card cloze \\
         --text "Para programar bien necesitas mucha {{c1::habilidad}} y practica." \\
@@ -24,9 +29,8 @@ Usage:
     uv run add-card picture --image-url "https://..." --word "la silla" \\
         --grammar "sustantivo · femenino" --definition "Mueble para sentarse."
 
-    # Repeat --front/--back (paired by position) for several cards in one run.
-    uv run add-card basic --front "..." --back "..." [--image-url "https://..."] \\
-        --front "..." --back "..."
+    # Two basic cards in one run.
+    uv run add-card basic --front "..." --back "..." --front "..." --back "..."
 """
 
 from __future__ import annotations
@@ -219,6 +223,35 @@ INFO_ARGS = {
     "note": "Anything else worth knowing (in Spanish).",
 }
 
+# Per subcommand: (required options, optional options, help). Every option is
+# repeatable and paired by position, one card per occurrence - so one run adds
+# any number of cards of a single type. Required options must be given once
+# per card; optional ones once per card (pass '' to skip one) or not at all.
+SUBCOMMANDS: dict[str, tuple[dict[str, str], dict[str, str], str]] = {
+    "cloze": (
+        {"text": "A cloze sentence, e.g. 'Hoy tengo {{c1::prisa}}.'"},
+        INFO_ARGS,
+        "Add Cloze card(s).",
+    ),
+    "picture": (
+        {
+            "image_url": "Image to show on the front.",
+            "word": "The Spanish word/phrase for the back, e.g. 'la silla'.",
+        },
+        INFO_ARGS,
+        "Add picture card(s): image alone on the front, word (+ info) on the back.",
+    ),
+    "basic": (
+        {"front": "Front text.", "back": "Back text."},
+        {"image_url": "Image URL to attach to the front."},
+        "Add Basic (front/back) card(s).",
+    ),
+}
+
+
+def _flag(name: str) -> str:
+    return "--" + name.replace("_", "-")
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -236,79 +269,52 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-media", action="store_true", help="Skip media sync.")
 
     subparsers = parser.add_subparsers(dest="kind", required=True)
-
-    cloze_parser = subparsers.add_parser("cloze", help="Add Cloze card(s).")
-    cloze_parser.add_argument(
-        "--text",
-        action="append",
-        required=True,
-        dest="texts",
-        help="A cloze sentence, e.g. 'Hoy tengo {{c1::prisa}}.' Repeat for multiple cards.",
-    )
-    for name, help_text in INFO_ARGS.items():
-        cloze_parser.add_argument(
-            f"--{name}",
-            action="append",
-            default=[],
-            help=f"{help_text} Paired by position with --text; pass '' to skip one.",
-        )
-
-    picture_parser = subparsers.add_parser(
-        "picture", help="Add a picture card: image alone on the front, word (+ info) on the back."
-    )
-    picture_parser.add_argument("--image-url", required=True, help="Image to show on the front.")
-    picture_parser.add_argument("--word", required=True, help="The Spanish word/phrase for the back, e.g. 'la silla'.")
-    for name, help_text in INFO_ARGS.items():
-        picture_parser.add_argument(f"--{name}", default="", help=help_text)
-
-    basic_parser = subparsers.add_parser("basic", help="Add a Basic (front/back) card.")
-    basic_parser.add_argument(
-        "--front", action="append", required=True, dest="fronts", help="Repeat for multiple cards."
-    )
-    basic_parser.add_argument(
-        "--back", action="append", required=True, dest="backs", help="Paired by position with --front."
-    )
-    basic_parser.add_argument(
-        "--image-url",
-        action="append",
-        default=[],
-        dest="image_urls",
-        help="Image URL to attach to the front. Paired by position with --front; pass '' to skip one.",
-    )
-
+    for kind, (required, optional, help_text) in SUBCOMMANDS.items():
+        sub = subparsers.add_parser(kind, help=help_text)
+        for name, arg_help in required.items():
+            sub.add_argument(
+                _flag(name), dest=name, action="append", required=True, help=f"{arg_help} Repeat per card."
+            )
+        for name, arg_help in optional.items():
+            sub.add_argument(
+                _flag(name),
+                dest=name,
+                action="append",
+                default=[],
+                help=f"{arg_help} Once per card ('' to skip one) or not at all.",
+            )
     return parser
+
+
+def _per_card(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[dict[str, str]]:
+    """Regroup the repeated options into one {option: value} dict per card,
+    rejecting counts that don't pair up."""
+    required, optional, _ = SUBCOMMANDS[args.kind]
+    first = next(iter(required))
+    n = len(getattr(args, first))
+    for name in required:
+        if len(getattr(args, name)) != n:
+            parser.error(f"{_flag(name)} must be given once per {_flag(first)}")
+    values = {name: getattr(args, name) for name in required}
+    for name in optional:
+        given = getattr(args, name)
+        if given and len(given) != n:
+            parser.error(f"{_flag(name)} must be given either zero times or once per {_flag(first)}")
+        values[name] = given or [""] * n
+    return [{name: vals[i] for name, vals in values.items()} for i in range(n)]
 
 
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    specs = _per_card(parser, args)
 
     if args.kind == "cloze":
-        n = len(args.texts)
-        info = {}
-        for name in INFO_ARGS:
-            values = getattr(args, name)
-            if values and len(values) != n:
-                parser.error(f"--{name} must be given either zero times or once per --text")
-            info[name] = values or [""] * n
-        cards = [
-            cloze_card(text, format_back(**{name: info[name][i] for name in INFO_ARGS}))
-            for i, text in enumerate(args.texts)
-        ]
+        cards = [cloze_card(s["text"], format_back(**{name: s[name] for name in INFO_ARGS})) for s in specs]
     elif args.kind == "picture":
-        info = {name: getattr(args, name) for name in INFO_ARGS}
-        cards = [picture_card(args.word, args.image_url, **info)]
+        cards = [picture_card(s["word"], s["image_url"], **{name: s[name] for name in INFO_ARGS}) for s in specs]
     elif args.kind == "basic":
-        n = len(args.fronts)
-        if len(args.backs) != n:
-            parser.error("--back must be given once per --front")
-        if args.image_urls and len(args.image_urls) != n:
-            parser.error("--image-url must be given either zero times or once per --front")
-        image_urls = args.image_urls or [""] * n
-        cards = [
-            basic_card(front, back, image_url=image_url or None)
-            for front, back, image_url in zip(args.fronts, args.backs, image_urls)
-        ]
+        cards = [basic_card(s["front"], s["back"], image_url=s["image_url"] or None) for s in specs]
     else:  # pragma: no cover - argparse enforces valid choices
         raise AssertionError(f"Unhandled kind: {args.kind!r}")
 

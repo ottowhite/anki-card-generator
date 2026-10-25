@@ -92,10 +92,11 @@ uv run add-card basic --front "..." --back "..."
 ```
 
 `--deck "Nombre"` targets a deck other than the default (`Vocabulario`).
-Repeat `--text` (cloze) for several cards in one run; each info
-option is then given once per `--text` (pass `""` to skip one) or not at all.
-Likewise repeat `--front`/`--back` pairs (basic) for several basic cards in
-one run, rather than one run per card. Picture cards are one per run.
+Several cards of the same type go in one run, not one run per card:
+repeat the options, paired by position — one `--text` (cloze), one
+`--image-url` + `--word` (picture), or one `--front` + `--back` (basic) per
+card. Each info option is then given once per card (pass `""` to skip one)
+or not at all. Different types need separate runs.
 
 The command syncs before and after, so the card is live on AnkiWeb when it
 finishes. Then report back **in Spanish**, quoting what you actually added
