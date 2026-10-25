@@ -9,15 +9,20 @@ Composing the actual card content (the Spanish sentence/cloze, word type,
 gender, infinitive, an image search query, etc.) is done by whoever calls
 this (e.g. Claude) - this module only owns the sync/add/sync mechanics.
 
+The back of cloze and picture cards is laid out by `format_back()` from
+separate pieces (--grammar, --definition, --synonyms, --note), so every
+card looks the same: big bold word, small grey grammar line, then
+definition and synonyms on their own lines.
+
 Usage:
     uv run add-card cloze \\
         --text "Para programar bien necesitas mucha {{c1::habilidad}} y practica." \\
-        --extra "sustantivo, femenino. Sinonimos: destreza, capacidad."
+        --grammar "sustantivo · femenino" --synonyms "destreza, capacidad"
 
     # Picture card: image alone on the front, word (+ info) on the back.
     # Not a Cloze card - images never go on Cloze cards.
     uv run add-card picture --image-url "https://..." --word "la silla" \\
-        --extra "sustantivo, femenino."
+        --grammar "sustantivo · femenino" --definition "Mueble para sentarse."
 
     uv run add-card basic --front "..." --back "..." [--image-url "https://..."]
 """
@@ -73,6 +78,29 @@ class CardSpec:
         return fields
 
 
+def format_back(
+    word: str = "",
+    grammar: str = "",
+    definition: str = "",
+    synonyms: str = "",
+    note: str = "",
+) -> str:
+    """The standard card-back layout; empty pieces are left out. Faded text
+    uses opacity, not a fixed colour, so it reads in light and dark mode."""
+    parts = []
+    if word:
+        parts.append(f'<div style="font-size:1.8em; font-weight:bold;">{word}</div>')
+    if grammar:
+        parts.append(f'<div style="font-style:italic; opacity:0.65; margin-top:4px;">{grammar}</div>')
+    if definition:
+        parts.append(f'<div style="margin-top:14px;">{definition}</div>')
+    if synonyms:
+        parts.append(f'<div style="margin-top:8px; opacity:0.8;"><b>Sinónimos:</b> {synonyms}</div>')
+    if note:
+        parts.append(f'<div style="margin-top:8px; opacity:0.8;">{note}</div>')
+    return "".join(parts)
+
+
 def cloze_card(text: str, extra: str = "") -> CardSpec:
     """A sentence with a {{c1::word}} cloze. Never carries an image - the
     picture goes on a separate picture_card() instead."""
@@ -93,11 +121,11 @@ def basic_card(
     )
 
 
-def picture_card(word: str, image_url: str, extra: str = "") -> CardSpec:
+def picture_card(word: str, image_url: str, **info: str) -> CardSpec:
     """A picture-recall card: the front is *only* the image; the back is
-    the Spanish word plus whatever grammar info applies (tipo de palabra,
-    genero, etc.) - all in Spanish, no English."""
-    back = f"{word}. {extra}".strip() if extra else word
+    the Spanish word plus whatever info applies (see `format_back`) - all
+    in Spanish, no English."""
+    back = format_back(word, **info)
     return basic_card(front="", back=back, image_url=image_url, image_field="Front")
 
 
@@ -182,6 +210,14 @@ def _verify_uploaded(col: Collection, note_ids: list[NoteId]) -> None:
         raise RuntimeError(f"Note(s) {unsynced} were added locally but did not reach AnkiWeb")
 
 
+INFO_ARGS = {
+    "grammar": "Grammar line, e.g. 'sustantivo · femenino' or 'verbo · infinitivo: tener'.",
+    "definition": "Short Spanish definition.",
+    "synonyms": "Comma-separated Spanish synonyms.",
+    "note": "Anything else worth knowing (in Spanish).",
+}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="add-card",
@@ -207,22 +243,21 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="texts",
         help="A cloze sentence, e.g. 'Hoy tengo {{c1::prisa}}.' Repeat for multiple cards.",
     )
-    cloze_parser.add_argument(
-        "--extra",
-        action="append",
-        default=[],
-        dest="extras",
-        help="'Back Extra' content, paired by position with --text.",
-    )
+    for name, help_text in INFO_ARGS.items():
+        cloze_parser.add_argument(
+            f"--{name}",
+            action="append",
+            default=[],
+            help=f"{help_text} Paired by position with --text; pass '' to skip one.",
+        )
 
     picture_parser = subparsers.add_parser(
         "picture", help="Add a picture card: image alone on the front, word (+ info) on the back."
     )
     picture_parser.add_argument("--image-url", required=True, help="Image to show on the front.")
     picture_parser.add_argument("--word", required=True, help="The Spanish word/phrase for the back, e.g. 'la silla'.")
-    picture_parser.add_argument(
-        "--extra", default="", help="Extra Spanish info for the back (tipo de palabra, genero, etc.)."
-    )
+    for name, help_text in INFO_ARGS.items():
+        picture_parser.add_argument(f"--{name}", default="", help=help_text)
 
     basic_parser = subparsers.add_parser("basic", help="Add a Basic (front/back) card.")
     basic_parser.add_argument("--front", required=True)
@@ -237,12 +272,20 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.kind == "cloze":
-        if args.extras and len(args.extras) != len(args.texts):
-            parser.error("--extra must be given either zero times or once per --text")
-        extras = args.extras or [""] * len(args.texts)
-        cards = [cloze_card(text, extra) for text, extra in zip(args.texts, extras)]
+        n = len(args.texts)
+        info = {}
+        for name in INFO_ARGS:
+            values = getattr(args, name)
+            if values and len(values) != n:
+                parser.error(f"--{name} must be given either zero times or once per --text")
+            info[name] = values or [""] * n
+        cards = [
+            cloze_card(text, format_back(**{name: info[name][i] for name in INFO_ARGS}))
+            for i, text in enumerate(args.texts)
+        ]
     elif args.kind == "picture":
-        cards = [picture_card(args.word, args.image_url, args.extra)]
+        info = {name: getattr(args, name) for name in INFO_ARGS}
+        cards = [picture_card(args.word, args.image_url, **info)]
     elif args.kind == "basic":
         cards = [basic_card(args.front, args.back, image_url=args.image_url)]
     else:  # pragma: no cover - argparse enforces valid choices

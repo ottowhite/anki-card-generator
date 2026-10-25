@@ -55,35 +55,40 @@ For a picture card, find a low-res image via web search and pass its URL.
 
 ## 2. Compose the back
 
-State in Spanish whichever apply to the word being taught:
+Give each piece as its own option — the tool lays them out (big bold word,
+small grey grammar line, definition and synonyms on their own lines).
+Never cram them into one sentence. All in Spanish; omit what doesn't apply.
 
-- **Tipo de palabra** — sustantivo, verbo, adjetivo, adverbio,
-  preposición, pronombre, conjunción, artículo, interjección…
-- **Género** — masculino / femenino (nouns, adjectives).
-- **Infinitivo** — if the front shows a conjugated form.
-- **Preposición** — if the verb takes a fixed one not already visible in
-  the sentence (*pensar en*, *soñar con*).
-- Anything else useful (synonyms, a brief clarification) — also Spanish.
-
-Example: `sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud.`
+- `--grammar` — tipo de palabra · género, joined with ` · `. Add
+  `infinitivo: …` if the front shows a conjugated form, and the fixed
+  preposition if not visible in the sentence (`verbo · pensar en`).
+  E.g. `sustantivo · femenino`.
+- `--definition` — short, plain Spanish definition.
+- `--synonyms` — comma-separated, without the label (the tool adds
+  `Sinónimos:`).
+- `--note` — anything else useful, e.g. `coloquial en Colombia`.
 
 ## 3. Run it
 
 ```bash
 uv run add-card cloze \
   --text "Para programar bien necesitas mucha {{c1::habilidad}} y práctica constante." \
-  --extra "sustantivo, femenino. Sinónimos: destreza, capacidad, aptitud."
+  --grammar "sustantivo · femenino" \
+  --definition "Capacidad para hacer algo bien." \
+  --synonyms "destreza, capacidad, aptitud"
 
 uv run add-card picture \
   --image-url "https://commons.wikimedia.org/wiki/Special:FilePath/Old-chair.jpg" \
   --word "la silla" \
-  --extra "sustantivo, femenino."
+  --grammar "sustantivo · femenino" \
+  --definition "Mueble con respaldo para que se siente una persona."
 
 uv run add-card basic --front "..." --back "..."
 ```
 
 `--deck "Nombre"` targets a deck other than the default (`Vocabulario`).
-Repeat `--text`/`--extra` (cloze only) for several cards in one run.
+Repeat `--text` (cloze only) for several cards in one run; each info
+option is then given once per `--text` (pass `""` to skip one) or not at all.
 
 The command syncs before and after, so the card is live on AnkiWeb when it
 finishes. Then report back **in Spanish**, quoting what you actually added

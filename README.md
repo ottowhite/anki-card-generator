@@ -26,8 +26,8 @@ yourself — never paste real credentials into chat/AI tools.
 uv run anki-driver-sync      # sync data/collection.anki2 with AnkiWeb
 uv run anki-driver           # demo: temp collection, add a note, print card count
 
-uv run add-card cloze --text "...{{c1::palabra}}..." --extra "..."
-uv run add-card picture --image-url "https://..." --word "la silla" --extra "..."
+uv run add-card cloze --text "...{{c1::palabra}}..." --grammar "..." [--definition/--synonyms/--note "..."]
+uv run add-card picture --image-url "https://..." --word "la silla" --grammar "..." [--definition/--synonyms/--note "..."]
 uv run add-card basic --front "..." --back "..." [--image-url URL]
 ```
 
